@@ -1,3 +1,7 @@
+## Unreleased
+
+* hint OSC 8 hyperlinks (tmux 3.4+), including links hard-wrapped across rows by the application; selecting the hint copies the full target URI. Controlled by `@fingers-hyperlinks` (default on)
+
 ## 2.7.1 - 09 Jun 2026
 
 * fix parsing of @fingers-enabled-builtin-patterns ( Fixes #176 )

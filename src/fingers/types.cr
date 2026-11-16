@@ -6,5 +6,6 @@ module Fingers
 
   abstract class Formatter
     abstract def format(hint : String, highlight : String, selected : Bool, offset : Tuple(Int32, Int32) | Nil)
+    abstract def format_continuation(highlight : String, selected : Bool)
   end
 end
