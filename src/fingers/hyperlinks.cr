@@ -112,7 +112,8 @@ module Fingers::Hyperlinks
 
       if soft_wrapped && span.col_end == rows[span.row].size
         start = span.col_start + offset
-        col_end = start + span.uri.size if lines[line][start, span.uri.size]? == span.uri
+        extended = start + common_prefix_size(lines[line], start, span.uri)
+        col_end = extended if extended > col_end
       end
 
       remapped = Span.new(span.uri, line, span.col_start + offset, col_end)
@@ -126,7 +127,23 @@ module Fingers::Hyperlinks
       end
     end
 
+    joined.each_index do |index|
+      current = joined[index]
+      following = joined[index + 1]?
+      next unless following && following.row == current.row && following.col_start < current.col_end
+
+      joined[index] = Span.new(current.uri, current.row, current.col_start, following.col_start)
+    end
+
     group(joined, lines)
+  end
+
+  private def self.common_prefix_size(line : String, from : Int32, uri : String) : Int32
+    size = 0
+    while (char = line[from + size]?) && char == uri[size]?
+      size += 1
+    end
+    size
   end
 
   # Soft-wrapped rows are separated in the joined line by at most the padding

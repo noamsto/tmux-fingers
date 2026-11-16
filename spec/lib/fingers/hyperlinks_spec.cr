@@ -108,16 +108,27 @@ describe Fingers::Hyperlinks do
     end
 
     it "keeps one link when a hard wrap follows a soft-wrapped link" do
-      uri = "http://h/aa"
+      uri = "http://h/aabb"
       raw = "  indented #{osc(uri)}http://h/#{osc("")}\naa\n  #{osc(uri)}bb#{osc("")}\n"
       lines = ["  indented http://h/aa", "  bb"]
       links = Fingers::Hyperlinks.resolve(raw, lines)
 
       links.size.should eq 1
+      links[0].uri.should eq uri
       links[0].segments.should eq [
         Fingers::Hyperlinks::Segment.new(0, 11, 22),
         Fingers::Hyperlinks::Segment.new(1, 2, 4),
       ]
+    end
+
+    it "does not let an extended link overlap a following link" do
+      raw = "012345678901#{osc("http://ab")}http://a#{osc("")}\n#{osc("http://b")}bcd#{osc("")} z\n"
+      lines = ["012345678901http://abcd z"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
+
+      links.map(&.uri).should eq ["http://ab", "http://b"]
+      links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(0, 12, 20)]
+      links[1].segments.should eq [Fingers::Hyperlinks::Segment.new(0, 20, 23)]
     end
 
     it "stays aligned after a soft-wrapped line starting with a tab" do
