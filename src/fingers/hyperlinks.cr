@@ -96,7 +96,7 @@ module Fingers::Hyperlinks
 
   # Maps a non-joined capture onto the joined (-J) lines the hinter matches
   # against. tmux re-opens a link on hard-wrapped rows but not on soft-wrapped
-  # continuation rows, so a span ending at a soft wrap is extended to the full URI.
+  # continuation rows, so a span ending at a soft wrap is extended along the URI text.
   def self.resolve(raw : String, lines : Array(String)) : Array(Link)
     rows, spans = parse(raw)
     return [] of Link if spans.empty?
