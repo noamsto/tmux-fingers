@@ -16,4 +16,10 @@ describe Tmux do
       Tmux.supports_hyperlinks?("3.5a").should be_true
     end
   end
+
+  describe ".escape_format" do
+    it "doubles # so display-message prints it literally" do
+      Tmux.escape_format("a\#{b}\#(id) \#[bold]").should eq "a#\#{b}##(id) ##[bold]"
+    end
+  end
 end

@@ -76,7 +76,7 @@ module Fingers::Hyperlinks
           if body.starts_with?("8;")
             close_span.call(rows.size, col)
             new_uri = body.split(';', 3)[2]? || ""
-            unless new_uri.empty?
+            unless new_uri.empty? || new_uri.each_char.any? { |c| c.whitespace? || c.control? }
               uri = new_uri
               start = col
             end
@@ -94,24 +94,33 @@ module Fingers::Hyperlinks
     {rows, spans}
   end
 
-  # Maps a non-joined capture (which re-opens links on every physical row) onto
-  # the joined (-J) lines the hinter matches against.
-  def self.resolve(raw : String, lines : Array(String), pane_width : Int32) : Array(Link)
+  # Maps a non-joined capture onto the joined (-J) lines the hinter matches
+  # against. tmux re-opens a link on hard-wrapped rows but not on soft-wrapped
+  # continuation rows, so a span ending at a soft wrap is extended to the full URI.
+  def self.resolve(raw : String, lines : Array(String)) : Array(Link)
     rows, spans = parse(raw)
     return [] of Link if spans.empty?
 
-    origins = row_origins(rows, lines, pane_width)
+    origins = row_origins(rows, lines)
     return [] of Link unless origins
 
     joined = [] of Span
     spans.each do |span|
       line, offset = origins[span.row]? || (return [] of Link)
-      remapped = Span.new(span.uri, line, span.col_start + offset, span.col_end + offset)
+      col_end = span.col_end + offset
+      soft_wrapped = origins[span.row + 1]?.try(&.[0]) == line
+
+      if soft_wrapped && span.col_end == rows[span.row].size
+        start = span.col_start + offset
+        col_end = start + span.uri.size if lines[line][start, span.uri.size]? == span.uri
+      end
+
+      remapped = Span.new(span.uri, line, span.col_start + offset, col_end)
       previous = joined.last?
 
       if previous && previous.uri == remapped.uri && previous.row == line &&
-         previous.col_end == remapped.col_start
-        joined[-1] = Span.new(previous.uri, line, previous.col_start, remapped.col_end)
+         remapped.col_start <= previous.col_end
+        joined[-1] = Span.new(previous.uri, line, previous.col_start, {previous.col_end, remapped.col_end}.max)
       else
         joined << remapped
       end
@@ -120,12 +129,15 @@ module Fingers::Hyperlinks
     group(joined, lines)
   end
 
-  private def self.row_origins(rows : Array(String), lines : Array(String), pane_width : Int32) : Array(Tuple(Int32, Int32))?
+  # Soft-wrapped rows are separated in the joined line by at most the padding
+  # tmux inserted (spaces, e.g. a tab filling to a tab stop), so the next row
+  # origin is the first offset past the row where the next row's text matches.
+  private def self.row_origins(rows : Array(String), lines : Array(String)) : Array(Tuple(Int32, Int32))?
     origins = [] of Tuple(Int32, Int32)
     line_index = 0
     pos = 0
 
-    rows.each do |text|
+    rows.each_with_index do |text, index|
       line = lines[line_index]?
       return origins if line.nil? && text.empty?
       return nil unless line
@@ -133,28 +145,27 @@ module Fingers::Hyperlinks
 
       origins << {line_index, pos}
 
-      if pos + text.size >= line.rstrip(' ').size
+      row_end = pos + text.size
+      if row_end >= line.rstrip(' ').size
         line_index += 1
         pos = 0
       else
-        pos += text.size + (pane_width - cells(text))
+        pos = next_row_origin(line, row_end, rows[index + 1]?) || (return nil)
       end
     end
 
     origins
   end
 
-  private def self.cells(text : String) : Int32
-    text.each_char.sum { |char| wide?(char) ? 2 : 1 }
-  end
+  private def self.next_row_origin(line : String, from : Int32, next_text : String?) : Int32?
+    return from if next_text.nil? || next_text.empty?
 
-  private def self.wide?(char : Char) : Bool
-    code = char.ord
-    (0x1100..0x115F).includes?(code) || (0x2E80..0xA4CF).includes?(code) ||
-      (0xAC00..0xD7A3).includes?(code) || (0xF900..0xFAFF).includes?(code) ||
-      (0xFE30..0xFE6F).includes?(code) || (0xFF00..0xFF60).includes?(code) ||
-      (0xFFE0..0xFFE6).includes?(code) || (0x1F300..0x1FAFF).includes?(code) ||
-      (0x20000..0x3FFFD).includes?(code)
+    pos = from
+    while pos + next_text.size <= line.size
+      return pos if line[pos, next_text.size] == next_text
+      return nil unless line[pos] == ' '
+      pos += 1
+    end
   end
 
   def self.group(spans : Array(Span), rows : Array(String)) : Array(Link)

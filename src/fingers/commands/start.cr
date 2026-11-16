@@ -223,7 +223,7 @@ module Fingers::Commands
         shift_action: @shift_action,
       ).run
 
-      tmux.display_message("Copied: #{state.result}", 1000) if should_notify?
+      tmux.display_message("Copied: #{Tmux.escape_format(state.result)}", 1000) if should_notify?
     rescue e
       Log.error { "Error processing result: #{e.message}" }
 
@@ -298,7 +298,7 @@ module Fingers::Commands
         # With -J, tmux drops the OSC 8 re-open on continuation rows, so links
         # are read from a non-joined capture and mapped back onto the joined lines.
         raw = tmux.capture_pane(target_pane, join: false, escapes: true)
-        links = Hyperlinks.resolve(raw, lines, target_pane.pane_width.to_i) if raw.includes?("\e]8;")
+        links = Hyperlinks.resolve(raw, lines) if raw.includes?("\e]8;")
       end
 
       {lines, links}

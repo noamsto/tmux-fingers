@@ -271,6 +271,8 @@ Show a message using `tmux display-message` notifying about the copied result.
 
 Offer one hint per [OSC 8 hyperlink](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda) shown in the pane. Selecting the hint copies the link target (the full URI), even when the visible text was broken across several rows by the application with hard newlines. Regular pattern matches that overlap a hyperlink are replaced by the hyperlink hint.
 
+The link target is chosen by whatever program printed the link and may differ from the visible text, so check what was copied (see [@fingers-show-copied-notification](#fingers-show-copied-notification)) before pasting or opening it. Targets containing whitespace or control characters are ignored.
+
 Requires tmux 3.4 or newer (earlier versions don't expose hyperlinks to `capture-pane`) and is not applied in jump mode. Set to `0` to disable.
 
 ## @fingers-enabled-builtin-patterns

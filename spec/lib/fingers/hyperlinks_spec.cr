@@ -56,6 +56,13 @@ describe Fingers::Hyperlinks do
       spans.should eq [Fingers::Hyperlinks::Span.new("u", 0, 0, 2)]
     end
 
+    it "ignores links whose target has whitespace or control characters" do
+      rows, spans = Fingers::Hyperlinks.parse("a #{osc("http://x y")}one#{osc("")} #{osc("http://x\u0001")}two#{osc("")}")
+
+      rows.should eq ["a one two"]
+      spans.should be_empty
+    end
+
     it "drops zero-width spans and strips SO/SI" do
       rows, spans = Fingers::Hyperlinks.parse("a#{osc("u")}#{osc("")}\u000e\u000fb")
 
@@ -69,7 +76,7 @@ describe Fingers::Hyperlinks do
       raw = "a #{osc(URI_FULL)}https://example.com/very/#{osc("")}\n" \
             "#{osc(URI_FULL)}/long/path/to/thing#{osc("")} b 10.0.0.1\n"
       lines = ["a https://example.com/very/", "/long/path/to/thing b 10.0.0.1"]
-      links = Fingers::Hyperlinks.resolve(raw, lines, 80)
+      links = Fingers::Hyperlinks.resolve(raw, lines)
 
       links.size.should eq 1
       links[0].uri.should eq URI_FULL
@@ -79,21 +86,62 @@ describe Fingers::Hyperlinks do
       ]
     end
 
-    it "joins a link soft-wrapped at the pane width into one segment" do
-      uri = "https://ex.com/aaaa/bbbb"
-      raw = "see #{osc(uri)}https://ex.com/a#{osc("")}\n#{osc(uri)}aaa/bbbb#{osc("")} end\n"
-      lines = ["see https://ex.com/aaaa/bbbb end"]
-      links = Fingers::Hyperlinks.resolve(raw, lines, 20)
+    it "extends a soft-wrapped link over the continuation row tmux does not re-open" do
+      uri = "http://soft/wrap/link/x"
+      raw = "see #{osc(uri)}http://soft/wrap#{osc("")}\n/link/x end\n"
+      lines = ["see http://soft/wrap/link/x end"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
 
       links.size.should eq 1
       links[0].uri.should eq uri
+      links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(0, 4, 27)]
+    end
+
+    it "coalesces a re-open on a continuation row into one segment" do
+      uri = "https://ex.com/aaaa/bbbb"
+      raw = "see #{osc(uri)}https://ex.com/a#{osc("")}\n#{osc(uri)}aaa/bbbb#{osc("")} end\n"
+      lines = ["see https://ex.com/aaaa/bbbb end"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
+
+      links.size.should eq 1
       links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(0, 4, 28)]
+    end
+
+    it "keeps one link when a hard wrap follows a soft-wrapped link" do
+      uri = "http://h/aa"
+      raw = "  indented #{osc(uri)}http://h/#{osc("")}\naa\n  #{osc(uri)}bb#{osc("")}\n"
+      lines = ["  indented http://h/aa", "  bb"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
+
+      links.size.should eq 1
+      links[0].segments.should eq [
+        Fingers::Hyperlinks::Segment.new(0, 11, 22),
+        Fingers::Hyperlinks::Segment.new(1, 2, 4),
+      ]
+    end
+
+    it "stays aligned after a soft-wrapped line starting with a tab" do
+      raw = "\tXXXXXXXXXXXX\nYYYY\ngo #{osc("u")}link#{osc("")}\n"
+      lines = ["\tXXXXXXXXXXXXYYYY", "go link"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
+
+      links.size.should eq 1
+      links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(1, 3, 7)]
+    end
+
+    it "stays aligned after a wide char wrapped without padding" do
+      raw = "zzzzzzzzzzzzzzzzzzz\n中\ngo #{osc("u")}link#{osc("")}\n"
+      lines = ["zzzzzzzzzzzzzzzzzzz中", "go link"]
+      links = Fingers::Hyperlinks.resolve(raw, lines)
+
+      links.size.should eq 1
+      links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(1, 3, 7)]
     end
 
     it "stays aligned on lines after a soft-wrapped one" do
       raw = "aaaaaaaaaaaaaaaaaaaa\n bbbb\ngo #{osc("u")}https://x.io/p#{osc("")}\n"
       lines = ["aaaaaaaaaaaaaaaaaaaa bbbb", "go https://x.io/p"]
-      links = Fingers::Hyperlinks.resolve(raw, lines, 20)
+      links = Fingers::Hyperlinks.resolve(raw, lines)
 
       links.size.should eq 1
       links[0].segments.should eq [Fingers::Hyperlinks::Segment.new(1, 3, 17)]
@@ -102,11 +150,11 @@ describe Fingers::Hyperlinks do
     it "returns nothing when raw and lines disagree" do
       raw = "#{osc("u")}hello#{osc("")}\n"
 
-      Fingers::Hyperlinks.resolve(raw, ["goodbye"], 80).should be_empty
+      Fingers::Hyperlinks.resolve(raw, ["goodbye"]).should be_empty
     end
 
     it "returns nothing without links" do
-      Fingers::Hyperlinks.resolve("plain\ntext\n", ["plain", "text"], 80).should be_empty
+      Fingers::Hyperlinks.resolve("plain\ntext\n", ["plain", "text"]).should be_empty
     end
   end
 

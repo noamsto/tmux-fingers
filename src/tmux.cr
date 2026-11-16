@@ -136,6 +136,10 @@ class Tmux
     tmux_version_to_semver(version_string) >= tmux_version_to_semver("3.4")
   end
 
+  def self.escape_format(text : String)
+    text.gsub("#", "##")
+  end
+
   def initialize(version_string)
     @sh = Shell.new
     @version = Tmux.tmux_version_to_semver(version_string)
