@@ -27,6 +27,11 @@ module Fingers
         after_offset(offset, highlight) + backdrop_style
     end
 
+    def format_continuation(highlight : String, selected : Bool)
+      reset_sequence + (selected ? selected_highlight_style : highlight_style) + highlight +
+        reset_sequence + backdrop_style
+    end
+
     private getter :hint_style, :highlight_style, :selected_hint_style, :selected_highlight_style, :hint_position, :reset_sequence, :backdrop_style
 
     private def before_offset(offset, highlight)

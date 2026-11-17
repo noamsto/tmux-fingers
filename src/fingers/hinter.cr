@@ -1,5 +1,6 @@
 require "../huffman"
 require "./config"
+require "./hyperlinks"
 require "./match_formatter"
 require "./types"
 
@@ -31,7 +32,8 @@ module Fingers
       alphabet = Fingers.config.alphabet,
       huffman = Huffman.new,
       formatter = ::Fingers::MatchFormatter.new,
-      reuse_hints = false
+      reuse_hints = false,
+      hyperlinks : Array(Hyperlinks::Link) = [] of Hyperlinks::Link
     )
       @lines = input
       @width = width
@@ -44,6 +46,14 @@ module Fingers
       @patterns = patterns
       @alphabet = alphabet
       @reuse_hints = reuse_hints
+      @hyperlinks = hyperlinks
+      @segments_by_row = {} of Int32 => Array({Hyperlinks::Link, Hyperlinks::Segment})
+      hyperlinks.each do |link|
+        link.segments.each do |segment|
+          (@segments_by_row[segment.row] ||= [] of {Hyperlinks::Link, Hyperlinks::Segment}) << {link, segment}
+        end
+      end
+      @link_renders = {} of Hyperlinks::Link => {String, Bool}
     end
 
     def run
@@ -74,11 +84,14 @@ module Fingers
       :alphabet,
       :reuse_hints,
       :target_by_hint,
-      :target_by_text
+      :target_by_text,
+      :hyperlinks,
+      :segments_by_row,
+      :link_renders
 
     def process_line(line, line_index, ending)
       tab_positions = tab_positions_for(line)
-      result = line.gsub(pattern) { |_m| replace($~, line_index) }
+      result = splice_edits(line, line_index)
       initial_length = result.size
       result = expand_tabs(result, tab_positions)
       tab_correction = result.size - initial_length
@@ -88,6 +101,73 @@ module Fingers
       padding_amount = (width - line.size - double_width_correction - tab_correction)
       padding = padding_amount > 0 ? " " * padding_amount : ""
       output.print(result + padding + ending)
+    end
+
+    def splice_edits(line, line_index)
+      segments = segments_by_row[line_index]? || [] of {Hyperlinks::Link, Hyperlinks::Segment}
+      matches = line.scan(pattern).reject { |m| overlaps_link?(line_index, m.begin(0), m.end(0)) }
+      result = String::Builder.new
+      cursor = 0
+      match_index = 0
+      segment_index = 0
+
+      while match_index < matches.size || segment_index < segments.size
+        match = matches[match_index]?
+        link_segment = segments[segment_index]?
+
+        if match && (link_segment.nil? || match.begin(0) < link_segment[1].col_start)
+          result << line[cursor...match.begin(0)] << replace(match, line_index)
+          cursor = match.end(0)
+          match_index += 1
+        else
+          link, segment = link_segment.not_nil!
+          result << line[cursor...segment.col_start] << replace_link(link, segment, line)
+          cursor = segment.col_end
+          segment_index += 1
+        end
+      end
+
+      result << line[cursor..]
+      result.to_s
+    end
+
+    def overlaps_link?(line_index, match_begin, match_end)
+      segments = segments_by_row[line_index]?
+      return false unless segments
+
+      segments.any? { |_, segment| segment.col_start < match_end && match_begin < segment.col_end }
+    end
+
+    def replace_link(link, segment, line)
+      text = line[segment.col_start...segment.col_end]
+      first = !link_renders.has_key?(link)
+
+      link_renders[link] = start_link(link, text) if first
+      hint, visible = link_renders[link]
+
+      return text unless visible
+
+      selected = state.selected_hints.includes?(hint)
+
+      if first
+        formatter.format(hint: hint, highlight: text, selected: selected, offset: nil)
+      else
+        formatter.format_continuation(highlight: text, selected: selected)
+      end
+    end
+
+    def start_link(link, first_text)
+      hint = hint_for_text(link.uri)
+
+      if hint.size > first_text.size
+        hints.push(hint)
+        return {hint, false}
+      end
+
+      first = link.segments.first
+      build_target(link.uri, hint, {first.row, first.col_start})
+
+      {hint, state.input.empty? || hint.starts_with?(state.input)}
     end
 
     def pattern : Regex
@@ -106,6 +186,7 @@ module Fingers
       @hints = huffman.generate_hints(alphabet: alphabet.clone, n: n_matches)
       @target_by_hint.clear
       @target_by_text.clear
+      @link_renders.clear
     end
 
     def replace(match, line_index)
@@ -209,11 +290,14 @@ module Fingers
     def count_unique_matches
       match_set = Set(String).new
 
-      lines.each do |line|
+      lines.each_with_index do |line, index|
         line.scan(pattern) do |match|
+          next if overlaps_link?(index, match.begin(0), match.end(0))
           match_set.add(captured_text_for_match(match))
         end
       end
+
+      hyperlinks.each { |link| match_set.add(link.uri) }
 
       @n_matches = match_set.size
 
@@ -221,11 +305,11 @@ module Fingers
     end
 
     def count_matches
-      result = 0
+      result = hyperlinks.size
 
-      lines.each do |line|
+      lines.each_with_index do |line, index|
         line.scan(pattern) do |match|
-          result += 1
+          result += 1 unless overlaps_link?(index, match.begin(0), match.end(0))
         end
       end
 

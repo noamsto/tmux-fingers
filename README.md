@@ -93,6 +93,7 @@ NOTE: for changes to take effect, you'll need to source again your `.tmux.conf` 
 * [@fingers-hint-position](#fingers-hint-position)
 * [@fingers-keyboard-layout](#fingers-keyboard-layout)
 * [@fingers-show-copied-notification](#fingers-show-copied-notification)
+* [@fingers-hyperlinks](#fingers-hyperlinks)
 * [@fingers-enabled-builtin-patterns](#fingers-enabled-builtin-patterns)
 * [@fingers-use-system-clipboard](#fingers-use-system-clipboard)
 * [@fingers-enable-bindings](#fingers-enable-bindings)
@@ -263,6 +264,16 @@ Hints are generated taking optimal finger movement into account. You can choose 
 `default: 0`
 
 Show a message using `tmux display-message` notifying about the copied result.
+
+## @fingers-hyperlinks
+
+`default: 1`
+
+Offer one hint per [OSC 8 hyperlink](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda) shown in the pane. Selecting the hint copies the link target (the full URI), even when the visible text was broken across several rows by the application with hard newlines. Regular pattern matches that overlap a hyperlink are replaced by the hyperlink hint.
+
+The link target is chosen by whatever program printed the link and may differ from the visible text, so check what was copied (see [@fingers-show-copied-notification](#fingers-show-copied-notification)) before pasting or opening it. Targets containing whitespace or control characters are ignored.
+
+Requires tmux 3.4 or newer (earlier versions don't expose hyperlinks to `capture-pane`) and is not applied in jump mode. Set to `0` to disable.
 
 ## @fingers-enabled-builtin-patterns
 

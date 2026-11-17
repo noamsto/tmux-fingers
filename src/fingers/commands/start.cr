@@ -1,6 +1,7 @@
 require "cling"
 require "./base"
 require "../hinter"
+require "../hyperlinks"
 require "../view"
 require "../state"
 require "../input_socket"
@@ -222,7 +223,7 @@ module Fingers::Commands
         shift_action: @shift_action,
       ).run
 
-      tmux.display_message("Copied: #{state.result}", 1000) if should_notify?
+      tmux.display_message("Copied: #{Tmux.escape_format(state.result)}", 1000) if should_notify?
     rescue e
       Log.error { "Error processing result: #{e.message}" }
 
@@ -285,11 +286,30 @@ module Fingers::Commands
         state: state,
         output: pane_printer,
         reuse_hints: mode != "jump",
+        hyperlinks: pane_hyperlinks,
       )
     end
 
-    private getter pane_contents : Array(String) do
-      tmux.capture_pane(target_pane, join: mode != "jump").split("\n")
+    private getter capture : Tuple(Array(String), Array(Hyperlinks::Link)) do
+      lines = tmux.capture_pane(target_pane, join: mode != "jump").split("\n")
+      links = [] of Hyperlinks::Link
+
+      if mode != "jump" && Fingers.config.hyperlinks && Tmux.supports_hyperlinks?(Fingers.config.tmux_version)
+        # With -J, tmux drops the OSC 8 re-open on continuation rows, so links
+        # are read from a non-joined capture and mapped back onto the joined lines.
+        raw = tmux.capture_pane(target_pane, join: false, escapes: true)
+        links = Hyperlinks.resolve(raw, lines) if raw.includes?("\e]8;")
+      end
+
+      {lines, links}
+    end
+
+    private def pane_contents
+      capture[0]
+    end
+
+    private def pane_hyperlinks
+      capture[1]
     end
 
     private getter view : View do
